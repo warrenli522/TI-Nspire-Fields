@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from typing import Any, Dict, Tuple, Type
-from fractions import Fraction
+from typing import Any, Dict, Tuple, Type, TYPE_CHECKING
 
-from sympy.polys.domains.field import Field as SympyField
+if TYPE_CHECKING:
+    from fractions import Fraction
+    from abc import ABC, abstractmethod
+else:
+    from src.main.micropython_modules.abc import ABC, abstractmethod
+    from src.main.micropython_modules.fractions import Fraction
 
+
+#TODO: refactor fields/field elements to be a single class (otherwise has issues w/ typing)
 class FieldElement(ABC):
     """Abstract base class for field elements."""
 
@@ -252,28 +257,3 @@ class RationalNumber(FieldElement):
 
     def __neg__(self) -> RationalNumber:
         return RationalNumber(-self._value)
-
-class SympyInterfaceField(SympyField): #pylint: disable=abstract-method
-    """Make fields defined here compatible w/ Sympy"""
-
-    is_Field = True
-    is_Exact = True
-
-    def __init__(self, field_cls: Type[Field]):
-        self.field = field_cls
-
-    def __pow__(self, a: FieldElement, b: Any) -> FieldElement:
-        if b == -1:
-            return a.mult_inv()
-        raise NotImplementedError("Only exponent -1 is implemented for field elements.")
-
-    @property
-    def zero(self):
-        return self.field.zero()
-
-    @property
-    def one(self):
-        return self.field.one()
-
-    def __repr__(self) -> str:
-        return f"SympyInterfaceField({self.field.__name__})"

@@ -1,11 +1,12 @@
 from typing import Any, List, Type, Tuple
 import copy
 
-from src.fields import Field
+from src.main.fields import Field
 
 
+#TODO: make this a container class (need to change field classes first)
 class Matrix:
-    """A matrix containing field elements"""
+    """A matrix modeled off of SymPy's DomainMatrix, but micropython compatible"""
     _matrix: List[List[Any]]
     _field: Field
 
@@ -41,12 +42,27 @@ class Matrix:
             raise IndexError(f"Column index out of range. (input: {col})")
 
     def swap_rows(self, row1: int, row2: int) -> None:
-        """Swap two rows of the matrix (ERO 1)"""
+        """
+        Swap two rows of the matrix (ERO type 1).
+        
+        :param row1: First row index
+        :type row1: int
+        :param row2: Second row index
+        :type row2: int
+        """
         self.validate_index(row1, 0)
         self.validate_index(row2, 0)
         self._matrix[row1], self._matrix[row2] = self._matrix[row2], self._matrix[row1]
 
-    def multiply_row(self, row_indx: int, scalar: Any) -> None:
+    def scale_row(self, row_indx: int, scalar: Any) -> None:
+        """
+        Scale a row of the matrix (ERO type 2).
+        
+        :param row_indx: Row index to scale
+        :type row_indx: int
+        :param scalar: Scalar to multiply the row by
+        :type scalar: Any
+        """
         try:
             scalar = self._field.instantiate(scalar)
         except ValueError as e:
@@ -56,6 +72,17 @@ class Matrix:
             self._matrix[row_indx][col] = self._matrix[row_indx][col] * scalar
 
     def add_multiple_of_row(self, target_row: int, source_row: int, scalar: Any) -> None:
+        """
+        Add a multiple of one row to another row (ERO type 3).
+        target_row += scalar * source_row
+        
+        :param target_row: Target row index
+        :type target_row: int
+        :param source_row: Source row index
+        :type source_row: int
+        :param scalar: Scalar to multiply the source row by
+        :type scalar: Any
+        """
         try:
             scalar = self._field.instantiate(scalar)
         except ValueError as e:
@@ -96,26 +123,83 @@ class Matrix:
                     break
         return found_pivot
 
-    def mult(self, other: 'Matrix') -> 'Matrix':
-        """Matrix multiplication: self * other"""
-        if self.cols != other.rows:
-            raise ValueError("Incompatible matrix dimensions for multiplication.")
-        if not isinstance(other.field , type(self.field)):
-            raise ValueError("Matrices must be over the same field for multiplication.")
+    #TODO: cleanup method
+    def elim(self, get_inv: bool = True, print_steps: bool = True) -> 'Matrix':
+        """
+        Performs Gauss-Jordan elimination to compute RREF or inverse matrix.
+        
+        :param get_inv: Whether to compute the inverse matrix instead of the RREF.
+        :type get_inv: bool
+        :param print_steps: Whether to print each step of the elimination process.
+        :type print_steps: bool
+        """
+        if get_inv and self.rows != self.cols:
+            raise ValueError("Inverse can only be computed for square matrices.")
 
-        result_data: List[List[Any]] = []
-        for i in range(self.rows):
-            result_row: List[Any] = []
-            for j in range(other.cols):
-                sum_element = self._field.zero()
-                for k in range(self.cols):
-                    product = self._matrix[i][k] * other[k, j]
-                    sum_element = sum_element + product
-                result_row.append(sum_element)
-            result_data.append(result_row)
+        mat = Matrix(self.matrix, self._field)
 
-        return Matrix(result_data, self._field)
+        inv: Matrix | None = None
+        if get_inv:
+            inv = Matrix.identity(self.rows, self.cols, self._field)
 
+        def print_step(step_desc: str) -> None:
+            if not print_steps:
+                return
+            print(step_desc)
+            print("Matrix:")
+            print(mat)
+            if inv is not None:
+                print("Inverse:")
+                print(inv)
+            print()
+
+        pivot_row = 0
+        for pivot_col in range(mat.cols):
+            if pivot_row >= mat.rows:
+                break
+
+            row_with_pivot = mat.first_nonzero(pivot_col, pivot_row)
+            if row_with_pivot == -1:
+                continue
+
+            if row_with_pivot != pivot_row:
+                mat.swap_rows(pivot_row, row_with_pivot)
+                if inv is not None:
+                    inv.swap_rows(pivot_row, row_with_pivot)
+                print_step(f"R{pivot_row + 1} <-> R{row_with_pivot + 1}")
+
+            pivot_val = mat.matrix[pivot_row][pivot_col]
+            if pivot_val != mat.field.one():
+                inv_pivot = pivot_val.mult_inv()
+                mat.scale_row(pivot_row, inv_pivot)
+                if inv is not None:
+                    inv.scale_row(pivot_row, inv_pivot)
+                print_step(f"R{pivot_row + 1} -> ({inv_pivot})R{pivot_row + 1}")
+
+            for r in range(mat.rows):
+                if r == pivot_row:
+                    continue
+                factor = -mat.matrix[r][pivot_col]
+                if factor == mat.field.zero():
+                    continue
+                mat.add_multiple_of_row(r, pivot_row, factor)
+                if inv is not None:
+                    inv.add_multiple_of_row(r, pivot_row, factor)
+                print_step(f"R{r + 1} -> R{r + 1} + ({factor})R{pivot_row + 1}")
+            print_step(f"Current Matrix: \n{mat}")
+            if inv:
+                print_step(f"current Inverse: \n{inv}")
+            pivot_row += 1
+
+        if inv is not None:
+            for i in range(mat.rows):
+                for j in range(mat.cols):
+                    expected = mat.field.one() if i == j else mat.field.zero()
+                    if mat.matrix[i][j] != expected:
+                        raise ValueError("Matrix is not invertible.")
+            return inv
+
+        return mat
 
     @property
     def rows(self) -> int:
@@ -133,14 +217,17 @@ class Matrix:
 
     @property
     def field(self) -> Field:
+        """
+        Return the field over which the matrix is defined.
+        """
         return self._field
 
     def __str__(self) -> str:
         #individual elements need to have str() called to print properly
-        result = ""
+        result = "Matrix("
         for row in self._matrix:
             result += "[" + ", ".join(str(elem) for elem in row) +  "]\n"
-        return result.strip()
+        return result.strip() + ")"
 
     def __getitem__(self, key: int | Tuple[int, int]) -> Any:
         """
@@ -198,3 +285,23 @@ class Matrix:
 
 
         raise IndexError("Invalid key type. Use m[row] or m[row, col].")
+
+    def __mul__(self, other: 'Matrix') -> 'Matrix':
+        """Matrix multiplication: self * other"""
+        if self.cols != other.rows:
+            raise ValueError("Incompatible matrix dimensions for multiplication.")
+        if not isinstance(other.field , type(self.field)):
+            raise ValueError("Matrices must be over the same field for multiplication.")
+
+        result_data: List[List[Any]] = []
+        for i in range(self.rows):
+            result_row: List[Any] = []
+            for j in range(other.cols):
+                sum_element = self._field.zero()
+                for k in range(self.cols):
+                    product = self._matrix[i][k] * other[k, j]
+                    sum_element = sum_element + product
+                result_row.append(sum_element)
+            result_data.append(result_row)
+
+        return Matrix(result_data, self._field)
