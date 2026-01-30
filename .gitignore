@@ -217,3 +217,5 @@ __marimo__/
 
 #random mac files
 **/.DS_Store
+
+testing*.py
