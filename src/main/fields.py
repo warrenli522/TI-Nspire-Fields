@@ -2,18 +2,16 @@ from __future__ import annotations
 
 from typing import Any, Dict, Tuple, Type, TYPE_CHECKING
 
-if TYPE_CHECKING:
+if TYPE_CHECKING or True:
     from fractions import Fraction
     from abc import ABC, abstractmethod
 else:
     from src.main.micropython_modules.abc import ABC, abstractmethod
     from src.main.micropython_modules.fractions import Fraction
 
-
 #TODO: refactor fields/field elements to be a single class (otherwise has issues w/ typing)
 class FieldElement(ABC):
     """Abstract base class for field elements."""
-
     @abstractmethod
     def __init__(self, value: Any):
         pass
@@ -82,9 +80,6 @@ class FieldElement(ABC):
     @abstractmethod
     def _value(self) -> Any:
         """Return the internal value of the field element."""
-
-
-
 
 class Field(ABC):
     """Abstract base class for fields."""

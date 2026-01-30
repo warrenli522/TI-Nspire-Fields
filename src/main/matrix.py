@@ -124,15 +124,21 @@ class Matrix:
         return found_pivot
 
     #TODO: cleanup method
-    def elim(self, get_inv: bool = True, print_steps: bool = True) -> 'Matrix':
+    def elim(self, get_inv: bool = False, print_steps: bool = True, reduced: bool = True) -> 'Matrix':
         """
-        Performs Gauss-Jordan elimination to compute RREF or inverse matrix.
+        Performs Gauss-Jordan elimination to compute RREF/REF or inverse matrix.
         
-        :param get_inv: Whether to compute the inverse matrix instead of the RREF.
+        :param get_inv: Whether to compute the inverse matrix instead of the REF/RREF.
         :type get_inv: bool
         :param print_steps: Whether to print each step of the elimination process.
         :type print_steps: bool
+        :param reduced: Whether to compute RREF (True) or REF (False). Ignored if get_inv is True.
+        :type reduced: bool
+        :return: The RREF/REF matrix or the inverse matrix.
+        :rtype: Matrix
         """
+        if get_inv:
+            reduced = True
         if get_inv and self.rows != self.cols:
             raise ValueError("Inverse can only be computed for square matrices.")
 
@@ -162,24 +168,37 @@ class Matrix:
             if row_with_pivot == -1:
                 continue
 
+            #swap rows for nonzero pivot
             if row_with_pivot != pivot_row:
                 mat.swap_rows(pivot_row, row_with_pivot)
                 if inv is not None:
                     inv.swap_rows(pivot_row, row_with_pivot)
                 print_step(f"R{pivot_row + 1} <-> R{row_with_pivot + 1}")
 
+            #scale rows (only for reduced row echelon form)
             pivot_val = mat.matrix[pivot_row][pivot_col]
-            if pivot_val != mat.field.one():
+            if pivot_val != mat.field.one() and reduced:
                 inv_pivot = pivot_val.mult_inv()
                 mat.scale_row(pivot_row, inv_pivot)
                 if inv is not None:
                     inv.scale_row(pivot_row, inv_pivot)
                 print_step(f"R{pivot_row + 1} -> ({inv_pivot})R{pivot_row + 1}")
 
-            for r in range(mat.rows):
+            #cancel elements in the pivot column
+            if reduced:
+                row_iter = range(mat.rows)
+                pivot_inv: Any | None = None
+            else:
+                #don't elim elements above pivot row for REF
+                row_iter = range(pivot_row + 1, mat.rows)
+                pivot_inv = pivot_val.mult_inv()
+            for r in row_iter:
                 if r == pivot_row:
                     continue
-                factor = -mat.matrix[r][pivot_col]
+                if reduced:
+                    factor = -mat.matrix[r][pivot_col]
+                else:
+                    factor = -(mat.matrix[r][pivot_col] * pivot_inv)
                 if factor == mat.field.zero():
                     continue
                 mat.add_multiple_of_row(r, pivot_row, factor)
@@ -192,6 +211,7 @@ class Matrix:
             pivot_row += 1
 
         if inv is not None:
+            #check if RREF was identity matrix (and thus the matrix was invertible)
             for i in range(mat.rows):
                 for j in range(mat.cols):
                     expected = mat.field.one() if i == j else mat.field.zero()
@@ -200,6 +220,54 @@ class Matrix:
             return inv
 
         return mat
+
+    def det(self, print_steps: bool = True) -> Any:
+        """
+        Finds the determinant of the matrix using REF and diagonal multiplication.
+        
+        :param print_steps: Whether to output each step
+        :type print_steps: bool
+        :return: The determinant of the matrix
+        :rtype: Any
+        """
+        if self.rows != self.cols:
+            raise ValueError("Cannot compute determinant of non-square matrix.")
+
+        mat = Matrix(self.matrix, self._field)
+        det = self.field.one()
+        # REF elimination with row swaps only (no scaling)
+        pivot_row = 0
+        for pivot_col in range(mat.cols):
+            if pivot_row >= mat.rows:
+                break
+
+            row_with_pivot = mat.first_nonzero(pivot_col, pivot_row)
+            if row_with_pivot == -1:
+                continue
+
+            #swapping rows
+            if row_with_pivot != pivot_row:
+                mat.swap_rows(pivot_row, row_with_pivot)
+                det = -det
+                if print_steps:
+                    print(f"R{pivot_row + 1} <-> R{row_with_pivot + 1}; det *= -1 -> {det}")
+
+            pivot_val = mat.matrix[pivot_row][pivot_col]
+            pivot_inv = pivot_val.mult_inv()
+            for r in range(pivot_row + 1, mat.rows):
+                factor = -(mat.matrix[r][pivot_col] * pivot_inv)
+                if factor == mat.field.zero():
+                    continue
+                mat.add_multiple_of_row(r, pivot_row, factor)
+                if print_steps:
+                    print(f"R{r + 1} -> R{r + 1} + ({factor})R{pivot_row + 1}; det={det}")
+            if print_steps:
+                print(f"Current Matrix: \n{mat}")
+            pivot_row += 1
+        # determinant is product of diagonal entries times swap sign
+        for i in range(mat.rows):
+            det = det * mat.matrix[i][i]
+        return det
 
     @property
     def rows(self) -> int:
